@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rastgele Sohbet</title>
+    <title>Deli - Rastgele Görüntülü Sohbet</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/animate.css@4.1.1/animate.min.css">
@@ -16,53 +16,27 @@
     </div>
 
     <div class="container">
-        <div id="welcome-screen" class="screen active animate__animated animate__fadeIn">
-            <h1 class="animate__animated animate__bounceIn">Rastgele Sohbet</h1>
-            <div class="preferences">
-                <div class="input-group">
-                    <label for="language-select">Dil Seçimi</label>
-                    <select id="language-select" class="input">
-                        <option value="">Dil Seçin</option>
-                        <option value="tr">Türkçe</option>
-                        <option value="en">English</option>
-                        <option value="de">Deutsch</option>
-                        <option value="fr">Français</option>
-                    </select>
-                </div>
-                
-                <div class="interests">
-                    <label for="interest-input">İlgi Alanları</label>
-                    <div class="input-with-button">
-                        <input type="text" id="interest-input" class="input" placeholder="İlgi alanı yazın ve Enter'a basın">
-                        <button onclick="addInterest()" class="btn-icon" aria-label="İlgi Alanı Ekle">
-                            <i class="fas fa-plus"></i>
-                        </button>
-                    </div>
-                    <div id="interest-tags" class="tags"></div>
-                </div>
-            </div>
+        <div id="welcome-screen" class="screen active">
+            <h1>Deli</h1>
+            <p>Yeni insanlarla tanışmanın en eğlenceli yolu!</p>
             
-            <div class="buttons">
-                <button onclick="startChat('text')" class="btn animate__animated animate__fadeInLeft">
-                    <i class="fas fa-comments"></i> Yazılı Sohbet
-                </button>
-                <button onclick="startChat('video')" class="btn animate__animated animate__fadeInRight">
-                    <i class="fas fa-video"></i> Görüntülü Sohbet
+            <div class="welcome-container">
+                <button onclick="startChat()" class="start-chat-btn">
+                    <i class="fas fa-video"></i>
+                    Sohbete Başla
                 </button>
             </div>
+        </div>
 
-            <div class="room-section animate__animated animate__fadeInUp">
-                <h3>Sohbet Odaları</h3>
-                <div class="create-room">
-                    <div class="input-group">
-                        <input type="text" id="room-name" class="input" placeholder="Oda Adı">
-                        <input type="text" id="room-topic" class="input" placeholder="Konu">
-                        <button onclick="createRoom()" class="btn-small">
-                            <i class="fas fa-plus"></i> Oda Oluştur
-                        </button>
-                    </div>
-                </div>
-                <div id="room-list" class="room-list"></div>
+        <div id="waiting-screen" class="screen">
+            <div class="loading-container">
+                <div class="loading-spinner"></div>
+                <div class="loading-text">Birileri Aranıyor...</div>
+                <div class="loading-subtext">Size uygun birini bulmaya çalışıyoruz</div>
+                <button onclick="cancelSearch()" class="btn danger" style="margin-top: 2rem;">
+                    <i class="fas fa-times"></i>
+                    Aramayı İptal Et
+                </button>
             </div>
         </div>
 
@@ -95,7 +69,7 @@
                 <div class="video-wrapper">
                     <video id="remote-video" autoplay playsinline></video>
                     <div class="video-overlay">
-                        <span class="video-status">Eşleşilen Kişi</span>
+                        <span class="video-status">Karşı Taraf</span>
                     </div>
                 </div>
             </div>
@@ -126,22 +100,15 @@
 
             <div class="chat-footer">
                 <button onclick="nextPartner()" class="btn">
-                    <i class="fas fa-random"></i> Sonraki Kişi
+                    <i class="fas fa-random"></i> Sonraki
                 </button>
                 <button onclick="reportUser()" class="btn warning">
                     <i class="fas fa-flag"></i> Raporla
                 </button>
                 <button onclick="endChat()" class="btn danger">
-                    <i class="fas fa-times"></i> Sohbeti Bitir
+                    <i class="fas fa-times"></i> Bitir
                 </button>
             </div>
-        </div>
-
-        <div id="waiting-screen" class="screen">
-            <h2 class="animate__animated animate__pulse animate__infinite">Eşleşme Bekleniyor...</h2>
-            <div class="loader"></div>
-            <p class="waiting-info">Size en uygun eşleşme aranıyor</p>
-            <button onclick="cancelSearch()" class="btn">İptal</button>
         </div>
     </div>
 

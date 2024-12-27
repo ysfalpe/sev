@@ -165,8 +165,11 @@ function sendMessage() {
     const input = document.getElementById('message-input');
     const message = input.value.trim();
     
-    if (message) {
-        socket.emit('message', { message });
+    if (message && peer) {
+        socket.emit('message', { 
+            message,
+            to: peer._id  // Eşleşilen kişinin ID'si
+        });
         addMessage(message, 'sent');
         input.value = '';
     }
@@ -293,6 +296,7 @@ socket.on('matchFound', ({ partnerId }) => {
             initiator: true,
             stream: localStream
         });
+        peer._id = partnerId;
         
         peer.on('signal', signal => {
             socket.emit('signal', { to: partnerId, signal });
@@ -310,6 +314,7 @@ socket.on('signal', ({ from, signal }) => {
         peer = new SimplePeer({
             stream: localStream
         });
+        peer._id = from;
         
         peer.on('signal', signal => {
             socket.emit('signal', { to: from, signal });
@@ -363,4 +368,84 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Emoji picker yükleme
     customElements.define('emoji-picker', EmojiPicker);
-}); 
+});
+
+// Sohbeti sonlandırma
+function endChat() {
+    if (peer) {
+        peer.destroy();
+        peer = null;
+    }
+    
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+    }
+    
+    socket.emit('leaveChat');
+    showScreen('welcome-screen');
+    showNotification('Sohbet sonlandırıldı', 'info');
+}
+
+// Sonraki kişiyi bulma
+function nextPartner() {
+    if (peer) {
+        peer.destroy();
+        peer = null;
+    }
+    
+    showScreen('waiting-screen');
+    const type = localStream ? 'video' : 'text';
+    const language = document.getElementById('language-select').value;
+    const preferences = {
+        language,
+        interests: Array.from(interests)
+    };
+    
+    socket.emit('findMatch', { type, preferences });
+    showNotification('Yeni eşleşme aranıyor...', 'info');
+}
+
+// Arama iptali
+function cancelSearch() {
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+    }
+    socket.emit('leaveChat');
+    showScreen('welcome-screen');
+    showNotification('Arama iptal edildi', 'info');
+}
+
+// Raporlama modalı
+function reportUser() {
+    document.getElementById('report-modal').classList.add('active');
+}
+
+function closeReportModal() {
+    document.getElementById('report-modal').classList.remove('active');
+}
+
+function submitReport() {
+    const reason = document.getElementById('report-reason').value;
+    const details = document.getElementById('report-details').value;
+    
+    if (!reason) {
+        showNotification('Lütfen bir sebep seçin', 'error');
+        return;
+    }
+    
+    if (peer) {
+        socket.emit('reportUser', {
+            userId: peer._id,
+            reason,
+            details
+        });
+        
+        closeReportModal();
+        showNotification('Kullanıcı rapor edildi', 'success');
+        
+        // Rapor sonrası otomatik olarak sonraki kişiye geç
+        nextPartner();
+    }
+} 

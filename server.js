@@ -154,19 +154,17 @@ io.on('connection', async (socket) => {
     });
 
     // Mesaj filtreleme ve gönderme
-    socket.on('message', async ({ to, message, roomId }) => {
+    socket.on('message', async ({ to, message }) => {
         const filteredMessage = filter.clean(message);
-        if (roomId) {
-            io.to(roomId).emit('message', {
-                from: socket.id,
-                message: filteredMessage
-            });
-        } else {
-            io.to(to).emit('message', {
-                from: socket.id,
-                message: filteredMessage
-            });
-        }
+        
+        // Mesajı alıcıya gönder
+        io.to(to).emit('message', {
+            from: socket.id,
+            message: filteredMessage
+        });
+        
+        // Log mesajı
+        console.log(`Mesaj gönderildi: ${socket.id} -> ${to}: ${filteredMessage}`);
     });
 
     // Kullanıcı raporlama
