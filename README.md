@@ -1,4 +1,4 @@
-# Random Chat Uygulaması
+# Deli
 
 Bu uygulama, kullanıcıların rastgele eşleşerek sohbet edebilecekleri bir platform sunar.
 
