@@ -1,50 +1,56 @@
-// Socket.IO bağlantısı
-const socket = io('http://localhost:3001');
+// Socket.io bağlantısı
+const socket = io();
 
-let currentPeer = null;
+// WebRTC değişkenleri
+let peer = null;
 let localStream = null;
-let chatType = null;
-let currentPartner = null;
-let screenStream = null;
+let remoteStream = null;
+let isVideoEnabled = true;
+let isAudioEnabled = true;
+let isScreenSharing = false;
+
+// UI değişkenleri
+let currentTheme = 'light';
 let interests = new Set();
-
-// DOM elementleri
-const screens = {
-    welcome: document.getElementById('welcome-screen'),
-    chat: document.getElementById('chat-screen'),
-    waiting: document.getElementById('waiting-screen')
-};
-
-const videoElements = {
-    local: document.getElementById('local-video'),
-    remote: document.getElementById('remote-video')
-};
+let emojiPicker = null;
+let notificationTimeout = null;
 
 // Tema değiştirme
 function toggleTheme() {
-    document.body.classList.toggle('dark-theme');
-    const icon = document.querySelector('.theme-toggle i');
-    icon.classList.toggle('fa-moon');
-    icon.classList.toggle('fa-sun');
+    const body = document.body;
+    const themeIcon = document.querySelector('.theme-toggle i');
     
-    // Tema tercihini kaydet
-    const isDark = document.body.classList.contains('dark-theme');
-    localStorage.setItem('theme', isDark ? 'dark' : 'light');
-}
-
-// Kaydedilmiş tema tercihini yükle
-if (localStorage.getItem('theme') === 'dark') {
-    toggleTheme();
+    if (currentTheme === 'light') {
+        body.classList.remove('light-theme');
+        body.classList.add('dark-theme');
+        themeIcon.classList.remove('fa-moon');
+        themeIcon.classList.add('fa-sun');
+        currentTheme = 'dark';
+    } else {
+        body.classList.remove('dark-theme');
+        body.classList.add('light-theme');
+        themeIcon.classList.remove('fa-sun');
+        themeIcon.classList.add('fa-moon');
+        currentTheme = 'light';
+    }
 }
 
 // İlgi alanı ekleme
 function addInterest() {
     const input = document.getElementById('interest-input');
-    const interest = input.value.trim().toLowerCase();
+    const value = input.value.trim();
     
-    if (interest && interests.size < 5) {
-        interests.add(interest);
-        updateInterestTags();
+    if (value && !interests.has(value)) {
+        interests.add(value);
+        const tag = document.createElement('div');
+        tag.className = 'tag';
+        tag.innerHTML = `
+            ${value}
+            <button onclick="removeInterest('${value}')">
+                <i class="fas fa-times"></i>
+            </button>
+        `;
+        document.getElementById('interest-tags').appendChild(tag);
         input.value = '';
     }
 }
@@ -52,178 +58,33 @@ function addInterest() {
 // İlgi alanı silme
 function removeInterest(interest) {
     interests.delete(interest);
-    updateInterestTags();
-}
-
-// İlgi alanı etiketlerini güncelleme
-function updateInterestTags() {
-    const container = document.getElementById('interest-tags');
-    container.innerHTML = '';
-    
-    interests.forEach(interest => {
-        const tag = document.createElement('div');
-        tag.className = 'tag';
-        tag.innerHTML = `
-            ${interest}
-            <button onclick="removeInterest('${interest}')">&times;</button>
-        `;
-        container.appendChild(tag);
-    });
-}
-
-// Emoji seçici
-function toggleEmojiPicker() {
-    const picker = document.getElementById('emoji-picker');
-    picker.classList.toggle('active');
-}
-
-// Dosya yükleme ve önizleme
-document.getElementById('file-input').addEventListener('change', function(e) {
-    const file = e.target.files[0];
-    if (file) {
-        if (file.size > 5 * 1024 * 1024) { // 5MB limit
-            alert('Dosya boyutu çok büyük. Maximum 5MB.');
-            return;
-        }
-
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            sendFile(file.name, e.target.result);
-        };
-        reader.readAsDataURL(file);
-    }
-});
-
-// Dosya gönderme
-function sendFile(fileName, fileData) {
-    if (currentPartner) {
-        const messageElement = document.createElement('div');
-        messageElement.className = 'message sent';
-        
-        if (fileData.startsWith('data:image')) {
-            const img = document.createElement('img');
-            img.src = fileData;
-            img.className = 'file-preview';
-            messageElement.appendChild(img);
-        } else {
-            const link = document.createElement('a');
-            link.href = fileData;
-            link.download = fileName;
-            link.textContent = fileName;
-            messageElement.appendChild(link);
-        }
-        
-        document.getElementById('messages').appendChild(messageElement);
-        
-        socket.emit('message', {
-            to: currentPartner,
-            message: {
-                type: 'file',
-                fileName,
-                fileData
-            }
-        });
+    const tags = document.getElementById('interest-tags');
+    const tag = Array.from(tags.children).find(tag => tag.textContent.trim() === interest);
+    if (tag) {
+        tag.classList.add('animate__animated', 'animate__fadeOut');
+        setTimeout(() => tags.removeChild(tag), 500);
     }
 }
 
-// Ekran paylaşımı
-async function toggleScreenShare() {
-    if (!screenStream) {
-        try {
-            screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
-            videoElements.local.srcObject = screenStream;
-            if (currentPeer) {
-                const videoTrack = screenStream.getVideoTracks()[0];
-                const sender = currentPeer.getSenders().find(s => s.track.kind === 'video');
-                sender.replaceTrack(videoTrack);
-            }
-            document.getElementById('screen-share').textContent = 'Ekranı Durdur';
-        } catch (err) {
-            console.error('Ekran paylaşımı hatası:', err);
-        }
-    } else {
-        screenStream.getTracks().forEach(track => track.stop());
-        screenStream = null;
-        if (localStream) {
-            videoElements.local.srcObject = localStream;
-            if (currentPeer) {
-                const videoTrack = localStream.getVideoTracks()[0];
-                const sender = currentPeer.getSenders().find(s => s.track.kind === 'video');
-                sender.replaceTrack(videoTrack);
-            }
-        }
-        document.getElementById('screen-share').textContent = 'Ekran Paylaş';
-    }
-}
-
-// Oda oluşturma
-function createRoom() {
-    const name = document.getElementById('room-name').value.trim();
-    const topic = document.getElementById('room-topic').value.trim();
-    
-    if (name && topic) {
-        socket.emit('createRoom', { name, topic });
-    }
-}
-
-// Odaya katılma
-function joinRoom(roomId) {
-    socket.emit('joinRoom', { roomId });
-}
-
-// Raporlama modalı
-function reportUser() {
-    document.getElementById('report-modal').classList.add('active');
-}
-
-function closeReportModal() {
-    document.getElementById('report-modal').classList.remove('active');
-}
-
-function submitReport() {
-    const reason = document.getElementById('report-reason').value;
-    const details = document.getElementById('report-details').value;
-    
-    if (reason && currentPartner) {
-        socket.emit('reportUser', {
-            userId: currentPartner,
-            reason,
-            details
-        });
-        closeReportModal();
-        alert('Raporunuz gönderildi. Teşekkür ederiz.');
-    }
-}
-
-// Ekran değiştirme fonksiyonu
-function showScreen(screenId) {
-    Object.values(screens).forEach(screen => screen.classList.remove('active'));
-    screens[screenId].classList.add('active');
-}
-
-// Sohbeti başlatma
+// Sohbet başlatma
 async function startChat(type) {
-    chatType = type;
-    showScreen('waiting');
-
+    const language = document.getElementById('language-select').value;
     const preferences = {
-        language: document.getElementById('language-select').value,
+        language,
         interests: Array.from(interests)
     };
 
+    showScreen('waiting-screen');
+    
     if (type === 'video') {
         try {
             localStream = await navigator.mediaDevices.getUserMedia({ 
-                video: { 
-                    width: { ideal: 1280 },
-                    height: { ideal: 720 }
-                }, 
+                video: true, 
                 audio: true 
             });
-            videoElements.local.srcObject = localStream;
+            document.getElementById('local-video').srcObject = localStream;
         } catch (err) {
-            alert('Kamera erişimi sağlanamadı: ' + err.message);
-            showScreen('welcome');
+            showNotification('Kamera veya mikrofon erişimi reddedildi', 'error');
             return;
         }
     }
@@ -231,53 +92,72 @@ async function startChat(type) {
     socket.emit('findMatch', { type, preferences });
 }
 
-// Eşleşme bulunduğunda
-socket.on('matchFound', async ({ partnerId }) => {
-    currentPartner = partnerId;
-    showScreen('chat');
+// Ekran paylaşımı
+async function toggleScreenShare() {
+    if (!isScreenSharing) {
+        try {
+            const screenStream = await navigator.mediaDevices.getDisplayMedia({ 
+                video: true 
+            });
+            const videoTrack = screenStream.getVideoTracks()[0];
+            
+            videoTrack.onended = () => {
+                stopScreenShare();
+            };
 
-    if (chatType === 'video') {
-        initializePeerConnection(partnerId);
+            const sender = peer.getSenders().find(s => s.track.kind === 'video');
+            await sender.replaceTrack(videoTrack);
+            
+            isScreenSharing = true;
+            document.getElementById('screen-share').classList.add('active');
+            showNotification('Ekran paylaşımı başlatıldı');
+        } catch (err) {
+            showNotification('Ekran paylaşımı başlatılamadı', 'error');
+        }
+    } else {
+        stopScreenShare();
     }
-});
+}
 
-// WebRTC bağlantısını başlatma
-function initializePeerConnection(partnerId) {
-    const peer = new SimplePeer({
-        initiator: true,
-        stream: localStream,
-        trickle: false,
-        config: {
-            iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:global.stun.twilio.com:3478' }
-            ]
-        }
-    });
+// Ekran paylaşımını durdurma
+async function stopScreenShare() {
+    if (isScreenSharing) {
+        const videoTrack = localStream.getVideoTracks()[0];
+        const sender = peer.getSenders().find(s => s.track.kind === 'video');
+        await sender.replaceTrack(videoTrack);
+        
+        isScreenSharing = false;
+        document.getElementById('screen-share').classList.remove('active');
+        showNotification('Ekran paylaşımı durduruldu');
+    }
+}
 
-    currentPeer = peer;
+// Video kontrolü
+function toggleVideo() {
+    const videoTrack = localStream.getVideoTracks()[0];
+    videoTrack.enabled = !videoTrack.enabled;
+    isVideoEnabled = videoTrack.enabled;
+    
+    const btn = document.getElementById('video-toggle');
+    btn.innerHTML = isVideoEnabled ? 
+        '<i class="fas fa-video"></i>' : 
+        '<i class="fas fa-video-slash"></i>';
+    
+    showNotification(isVideoEnabled ? 'Kamera açıldı' : 'Kamera kapatıldı');
+}
 
-    peer.on('signal', data => {
-        socket.emit('signal', {
-            signal: data,
-            to: partnerId
-        });
-    });
-
-    peer.on('stream', stream => {
-        videoElements.remote.srcObject = stream;
-    });
-
-    peer.on('error', err => {
-        console.error('Peer bağlantı hatası:', err);
-        endChat();
-    });
-
-    socket.on('signal', ({ from, signal }) => {
-        if (from === partnerId) {
-            peer.signal(signal);
-        }
-    });
+// Ses kontrolü
+function toggleAudio() {
+    const audioTrack = localStream.getAudioTracks()[0];
+    audioTrack.enabled = !audioTrack.enabled;
+    isAudioEnabled = audioTrack.enabled;
+    
+    const btn = document.getElementById('audio-toggle');
+    btn.innerHTML = isAudioEnabled ? 
+        '<i class="fas fa-microphone"></i>' : 
+        '<i class="fas fa-microphone-slash"></i>';
+    
+    showNotification(isAudioEnabled ? 'Mikrofon açıldı' : 'Mikrofon kapatıldı');
 }
 
 // Mesaj gönderme
@@ -285,133 +165,202 @@ function sendMessage() {
     const input = document.getElementById('message-input');
     const message = input.value.trim();
     
-    if (message && currentPartner) {
-        const messageElement = document.createElement('div');
-        messageElement.className = 'message sent';
-        messageElement.textContent = message;
-        document.getElementById('messages').appendChild(messageElement);
-        
-        socket.emit('message', {
-            to: currentPartner,
-            message
-        });
-        
+    if (message) {
+        socket.emit('message', { message });
+        addMessage(message, 'sent');
         input.value = '';
     }
 }
 
-// Mesaj alma
-socket.on('message', ({ from, message }) => {
-    if (from === currentPartner) {
-        const messageElement = document.createElement('div');
-        messageElement.className = 'message received';
+// Mesaj ekleme
+function addMessage(message, type) {
+    const messages = document.getElementById('messages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${type} animate__animated animate__fadeIn`;
+    messageDiv.textContent = message;
+    messages.appendChild(messageDiv);
+    messages.scrollTop = messages.scrollHeight;
+}
+
+// Emoji picker
+function toggleEmojiPicker() {
+    if (!emojiPicker) {
+        emojiPicker = new EmojiPicker();
+        document.getElementById('emoji-picker').appendChild(emojiPicker);
         
-        if (typeof message === 'object' && message.type === 'file') {
-            if (message.fileData.startsWith('data:image')) {
-                const img = document.createElement('img');
-                img.src = message.fileData;
-                img.className = 'file-preview';
-                messageElement.appendChild(img);
-            } else {
-                const link = document.createElement('a');
-                link.href = message.fileData;
-                link.download = message.fileName;
-                link.textContent = message.fileName;
-                messageElement.appendChild(link);
-            }
-        } else {
-            messageElement.textContent = message;
-        }
+        emojiPicker.addEventListener('emoji-click', event => {
+            const input = document.getElementById('message-input');
+            input.value += event.detail.unicode;
+            input.focus();
+        });
+    }
+    
+    const picker = document.getElementById('emoji-picker');
+    picker.classList.toggle('active');
+}
+
+// Dosya yükleme
+document.getElementById('file-input').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    if (!file.type.startsWith('image/')) {
+        showNotification('Sadece resim dosyaları desteklenmektedir', 'error');
+        return;
+    }
+    
+    if (file.size > 5 * 1024 * 1024) {
+        showNotification('Dosya boyutu 5MB\'dan küçük olmalıdır', 'error');
+        return;
+    }
+    
+    try {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            socket.emit('message', { 
+                type: 'image',
+                data: e.target.result 
+            });
+            addImageMessage(e.target.result, 'sent');
+        };
+        reader.readAsDataURL(file);
+    } catch (err) {
+        showNotification('Dosya yüklenirken hata oluştu', 'error');
+    }
+});
+
+// Resim mesajı ekleme
+function addImageMessage(src, type) {
+    const messages = document.getElementById('messages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${type} animate__animated animate__fadeIn`;
+    
+    const img = document.createElement('img');
+    img.src = src;
+    img.className = 'message-image';
+    img.onclick = () => {
+        const modal = document.createElement('div');
+        modal.className = 'image-modal';
+        modal.onclick = () => document.body.removeChild(modal);
         
-        document.getElementById('messages').appendChild(messageElement);
-        messageElement.scrollIntoView({ behavior: 'smooth' });
-    }
-});
-
-// Video/ses kontrolü
-function toggleVideo() {
-    if (localStream) {
-        const videoTrack = localStream.getVideoTracks()[0];
-        videoTrack.enabled = !videoTrack.enabled;
-        document.getElementById('video-toggle').textContent = 
-            videoTrack.enabled ? 'Kamerayı Kapat' : 'Kamerayı Aç';
-    }
+        const modalImg = document.createElement('img');
+        modalImg.src = src;
+        modal.appendChild(modalImg);
+        document.body.appendChild(modal);
+    };
+    
+    messageDiv.appendChild(img);
+    messages.appendChild(messageDiv);
+    messages.scrollTop = messages.scrollHeight;
 }
 
-function toggleAudio() {
-    if (localStream) {
-        const audioTrack = localStream.getAudioTracks()[0];
-        audioTrack.enabled = !audioTrack.enabled;
-        document.getElementById('audio-toggle').textContent = 
-            audioTrack.enabled ? 'Sesi Kapat' : 'Sesi Aç';
-    }
-}
-
-// Sohbeti sonlandırma
-function endChat() {
-    if (currentPeer) {
-        currentPeer.destroy();
-        currentPeer = null;
+// Bildirim gösterme
+function showNotification(message, type = 'info') {
+    const notification = document.getElementById('notification');
+    notification.textContent = message;
+    notification.className = `notification ${type} animate__animated animate__fadeInDown`;
+    
+    if (notificationTimeout) {
+        clearTimeout(notificationTimeout);
     }
     
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
-    }
-    
-    if (screenStream) {
-        screenStream.getTracks().forEach(track => track.stop());
-        screenStream = null;
-    }
-    
-    socket.emit('leaveChat');
-    currentPartner = null;
-    showScreen('welcome');
+    notificationTimeout = setTimeout(() => {
+        notification.classList.remove('animate__fadeInDown');
+        notification.classList.add('animate__fadeOutUp');
+        
+        setTimeout(() => {
+            notification.className = 'notification';
+            notification.textContent = '';
+        }, 500);
+    }, 3000);
 }
 
-// Yeni eşleşme arama
-function nextPartner() {
-    endChat();
-    startChat(chatType);
-}
-
-// Arama iptal
-function cancelSearch() {
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
-    }
-    socket.emit('leaveChat');
-    showScreen('welcome');
-}
-
-// Partner ayrıldığında
-socket.on('partnerLeft', () => {
-    alert('Karşı taraf sohbetten ayrıldı.');
-    endChat();
-});
-
-// Yasaklama durumu
-socket.on('banned', ({ reason }) => {
-    alert(`Hesabınız şu sebepten dolayı yasaklandı: ${reason}`);
-    endChat();
-});
-
-// Oda listesini güncelleme
-socket.on('roomList', (rooms) => {
-    const container = document.getElementById('room-list');
-    container.innerHTML = '';
-    
-    rooms.forEach(room => {
-        const div = document.createElement('div');
-        div.className = 'room-item';
-        div.innerHTML = `
-            <div>
-                <strong>${room.name}</strong>
-                <p>${room.topic}</p>
-            </div>
-            <button onclick="joinRoom('${room._id}')" class="btn-small">Katıl</button>
-        `;
-        container.appendChild(div);
+// Ekran değiştirme
+function showScreen(screenId) {
+    document.querySelectorAll('.screen').forEach(screen => {
+        screen.classList.remove('active');
     });
+    document.getElementById(screenId).classList.add('active');
+}
+
+// Socket.io event listeners
+socket.on('matchFound', ({ partnerId }) => {
+    showScreen('chat-screen');
+    showNotification('Eşleşme bulundu!', 'success');
+    
+    if (localStream) {
+        peer = new SimplePeer({
+            initiator: true,
+            stream: localStream
+        });
+        
+        peer.on('signal', signal => {
+            socket.emit('signal', { to: partnerId, signal });
+        });
+        
+        peer.on('stream', stream => {
+            document.getElementById('remote-video').srcObject = stream;
+            remoteStream = stream;
+        });
+    }
+});
+
+socket.on('signal', ({ from, signal }) => {
+    if (!peer) {
+        peer = new SimplePeer({
+            stream: localStream
+        });
+        
+        peer.on('signal', signal => {
+            socket.emit('signal', { to: from, signal });
+        });
+        
+        peer.on('stream', stream => {
+            document.getElementById('remote-video').srcObject = stream;
+            remoteStream = stream;
+        });
+    }
+    
+    peer.signal(signal);
+});
+
+socket.on('message', ({ from, message, type }) => {
+    if (type === 'image') {
+        addImageMessage(message, 'received');
+    } else {
+        addMessage(message, 'received');
+    }
+});
+
+socket.on('partnerLeft', () => {
+    showNotification('Eşleşilen kişi ayrıldı', 'warning');
+    if (peer) {
+        peer.destroy();
+        peer = null;
+    }
+    showScreen('welcome-screen');
+});
+
+// Event listeners
+document.getElementById('interest-input').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        addInterest();
+    }
+});
+
+document.getElementById('message-input').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        sendMessage();
+    }
+});
+
+// Başlangıç ayarları
+document.addEventListener('DOMContentLoaded', () => {
+    // Tema kontrolü
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        toggleTheme();
+    }
+    
+    // Emoji picker yükleme
+    customElements.define('emoji-picker', EmojiPicker);
 }); 
