@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rastgele Sohbet</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="light-theme">
+    <div class="theme-toggle">
+        <button onclick="toggleTheme()" class="btn-icon">
+            <i class="fas fa-moon"></i>
+        </button>
+    </div>
+
+    <div class="container">
+        <div id="welcome-screen" class="screen active">
+            <h1>Rastgele Sohbet</h1>
+            <div class="preferences">
+                <select id="language-select" class="input">
+                    <option value="">Dil Seçin</option>
+                    <option value="tr">Türkçe</option>
+                    <option value="en">English</option>
+                    <option value="de">Deutsch</option>
+                    <option value="fr">Français</option>
+                </select>
+                
+                <div class="interests">
+                    <input type="text" id="interest-input" class="input" placeholder="İlgi Alanı Ekle">
+                    <button onclick="addInterest()" class="btn-small">Ekle</button>
+                    <div id="interest-tags" class="tags"></div>
+                </div>
+            </div>
+            
+            <div class="buttons">
+                <button onclick="startChat('text')" class="btn">Yazılı Sohbet</button>
+                <button onclick="startChat('video')" class="btn">Görüntülü Sohbet</button>
+            </div>
+
+            <div class="room-section">
+                <h3>Sohbet Odaları</h3>
+                <div class="create-room">
+                    <input type="text" id="room-name" class="input" placeholder="Oda Adı">
+                    <input type="text" id="room-topic" class="input" placeholder="Konu">
+                    <button onclick="createRoom()" class="btn-small">Oda Oluştur</button>
+                </div>
+                <div id="room-list" class="room-list"></div>
+            </div>
+        </div>
+
+        <div id="chat-screen" class="screen">
+            <div id="video-container">
+                <video id="local-video" autoplay muted playsinline></video>
+                <video id="remote-video" autoplay playsinline></video>
+            </div>
+            
+            <div id="text-chat">
+                <div id="messages"></div>
+                <div class="input-area">
+                    <button onclick="toggleEmojiPicker()" class="btn-icon">
+                        <i class="far fa-smile"></i>
+                    </button>
+                    <div id="emoji-picker" class="emoji-picker"></div>
+                    <input type="text" id="message-input" placeholder="Mesajınızı yazın...">
+                    <label for="file-input" class="btn-icon">
+                        <i class="fas fa-paperclip"></i>
+                    </label>
+                    <input type="file" id="file-input" style="display: none">
+                    <button onclick="sendMessage()" class="btn">Gönder</button>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button onclick="nextPartner()" class="btn">Sonraki Kişi</button>
+                <button onclick="toggleVideo()" class="btn" id="video-toggle">Kamerayı Kapat</button>
+                <button onclick="toggleAudio()" class="btn" id="audio-toggle">Sesi Kapat</button>
+                <button onclick="toggleScreenShare()" class="btn" id="screen-share">Ekran Paylaş</button>
+                <button onclick="reportUser()" class="btn warning">Raporla</button>
+                <button onclick="endChat()" class="btn danger">Sohbeti Bitir</button>
+            </div>
+        </div>
+
+        <div id="waiting-screen" class="screen">
+            <h2>Eşleşme Bekleniyor...</h2>
+            <div class="loader"></div>
+            <button onclick="cancelSearch()" class="btn">İptal</button>
+        </div>
+    </div>
+
+    <div id="report-modal" class="modal">
+        <div class="modal-content">
+            <h3>Kullanıcıyı Raporla</h3>
+            <select id="report-reason" class="input">
+                <option value="">Sebep Seçin</option>
+                <option value="inappropriate">Uygunsuz İçerik</option>
+                <option value="spam">Spam</option>
+                <option value="harassment">Taciz</option>
+                <option value="other">Diğer</option>
+            </select>
+            <textarea id="report-details" class="input" placeholder="Detaylar (opsiyonel)"></textarea>
+            <div class="modal-buttons">
+                <button onclick="submitReport()" class="btn">Gönder</button>
+                <button onclick="closeReportModal()" class="btn">İptal</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://unpkg.com/simple-peer@9.11.0/simplepeer.min.js"></script>
+    <script src="https://unpkg.com/emoji-picker-element@1.12.1/index.js"></script>
+    <script src="app.js"></script>
+</body>
+</html> 
