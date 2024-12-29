@@ -139,25 +139,71 @@ class App {
             // WebRTC bağlantısını başlat
             await this.webRTCManager.initialize(stream, true);
 
+            // Ekranı değiştir (önce bunu yap)
+            this.switchScreen('waiting');
+
             // Eşleşme aramaya başla
             this.startSearching();
 
-            // Ekranı değiştir
-            this.switchScreen('waiting');
+            // Bildirim göster
+            this.notificationManager.showInfo('Eşleşme aranıyor...');
+            
         } catch (error) {
             console.error('Sohbet başlatma hatası:', error);
             this.notificationManager.showError('Sohbet başlatılamadı: ' + error.message);
+            // Hata durumunda welcome ekranına geri dön
+            this.switchScreen('welcome');
         }
     }
 
     startSearching() {
-        if (this.isSearching) return;
+        if (this.isSearching) {
+            this.notificationManager.showWarning('Zaten arama yapılıyor...');
+            return;
+        }
 
         this.isSearching = true;
-        this.socket.emit('search');
+        
+        // Socket bağlantısını kontrol et
+        if (!this.socket?.connected) {
+            this.notificationManager.showError('Sunucu bağlantısı kurulamadı');
+            this.isSearching = false;
+            this.switchScreen('welcome');
+            return;
+        }
+
+        // Arama başlatma eventi
+        this.socket.emit('startSearch', {
+            preferences: this.getUserPreferences()
+        });
 
         // Bekleme süresini başlat
         this.startWaitingTimer();
+
+        // Arama durumu güncellemesi
+        this.updateSearchStatus();
+    }
+
+    updateSearchStatus() {
+        const loadingText = document.querySelector('.loading-text');
+        const loadingSubtext = document.querySelector('.loading-subtext');
+        
+        if (loadingText) {
+            loadingText.textContent = 'Birileri Aranıyor...';
+        }
+        if (loadingSubtext) {
+            loadingSubtext.textContent = 'Size uygun birini bulmaya çalışıyoruz';
+        }
+    }
+
+    getUserPreferences() {
+        return {
+            minAge: parseInt(document.getElementById('minAge')?.value) || 18,
+            maxAge: parseInt(document.getElementById('maxAge')?.value) || 99,
+            interests: Array.from(document.querySelectorAll('.interest-tag'))
+                .map(tag => tag.textContent.trim()),
+            language: document.getElementById('language-select')?.value || 'tr'
+        };
     }
 
     startWaitingTimer() {

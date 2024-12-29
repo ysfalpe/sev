@@ -99,9 +99,148 @@ if (cluster.isMaster) {
         },
         pingTimeout: 60000,
         pingInterval: 25000,
-        transports: ['websocket'], // Polling'i devre dışı bırak
-        maxHttpBufferSize: 1e6 // 1MB
+        transports: ['websocket'],
+        maxHttpBufferSize: 1e6
     });
+
+    // Aktif kullanıcıları ve arama yapanları sakla
+    const activeUsers = new Map();
+    const searchingUsers = new Map();
+
+    // Socket.IO event handler'ları
+    io.on('connection', (socket) => {
+        console.log(`Kullanıcı bağlandı: ${socket.id}`);
+        
+        // Kullanıcıyı aktif kullanıcılara ekle
+        activeUsers.set(socket.id, {
+            socket,
+            preferences: null,
+            partner: null,
+            searching: false
+        });
+
+        // Arama başlatma
+        socket.on('startSearch', async (data) => {
+            try {
+                const user = activeUsers.get(socket.id);
+                if (!user) return;
+
+                // Kullanıcı zaten arama yapıyor mu kontrol et
+                if (user.searching) {
+                    socket.emit('searchError', { message: 'Zaten arama yapılıyor' });
+                    return;
+                }
+
+                // Kullanıcı zaten eşleşmiş mi kontrol et
+                if (user.partner) {
+                    socket.emit('searchError', { message: 'Zaten bir eşleşmeniz var' });
+                    return;
+                }
+
+                // Kullanıcı tercihlerini kaydet
+                user.preferences = data.preferences;
+                user.searching = true;
+                
+                // Arama listesine ekle
+                searchingUsers.set(socket.id, user);
+
+                // Eşleşme ara
+                findMatch(socket.id);
+
+            } catch (error) {
+                console.error('Arama başlatma hatası:', error);
+                socket.emit('searchError', { message: 'Arama başlatılamadı' });
+            }
+        });
+
+        // Aramayı iptal etme
+        socket.on('cancelSearch', () => {
+            const user = activeUsers.get(socket.id);
+            if (user) {
+                user.searching = false;
+                searchingUsers.delete(socket.id);
+                socket.emit('searchCancelled');
+            }
+        });
+
+        // Bağlantı kopması
+        socket.on('disconnect', () => {
+            const user = activeUsers.get(socket.id);
+            if (user) {
+                // Eşleşmiş kullanıcıyı bilgilendir
+                if (user.partner) {
+                    const partner = activeUsers.get(user.partner);
+                    if (partner) {
+                        partner.socket.emit('partnerDisconnected');
+                        partner.partner = null;
+                    }
+                }
+                
+                // Kullanıcıyı listelerden kaldır
+                activeUsers.delete(socket.id);
+                searchingUsers.delete(socket.id);
+            }
+            console.log(`Kullanıcı ayrıldı: ${socket.id}`);
+        });
+    });
+
+    // Eşleşme bulma fonksiyonu
+    async function findMatch(userId) {
+        const user = searchingUsers.get(userId);
+        if (!user) return;
+
+        // Uygun eşleşme ara
+        for (const [candidateId, candidate] of searchingUsers) {
+            // Kendisi ile eşleştirme
+            if (candidateId === userId) continue;
+            
+            // Eşleşme kriterleri kontrolü
+            if (isMatchCompatible(user, candidate)) {
+                // Eşleşmeyi gerçekleştir
+                user.partner = candidateId;
+                candidate.partner = userId;
+                
+                // Arama listesinden çıkar
+                user.searching = false;
+                candidate.searching = false;
+                searchingUsers.delete(userId);
+                searchingUsers.delete(candidateId);
+                
+                // Kullanıcıları bilgilendir
+                user.socket.emit('matchFound', { partnerId: candidateId });
+                candidate.socket.emit('matchFound', { partnerId: userId });
+                
+                return;
+            }
+        }
+
+        // Eşleşme bulunamadı, 3 saniye sonra tekrar dene
+        setTimeout(() => findMatch(userId), 3000);
+    }
+
+    // Eşleşme uygunluğunu kontrol et
+    function isMatchCompatible(user1, user2) {
+        const p1 = user1.preferences;
+        const p2 = user2.preferences;
+        
+        // Yaş kontrolü
+        const isAgeCompatible = (
+            p1.minAge <= p2.maxAge &&
+            p1.maxAge >= p2.minAge
+        );
+
+        // Dil kontrolü
+        const isLanguageCompatible = (
+            p1.language === p2.language
+        );
+
+        // İlgi alanları kontrolü (en az 1 ortak ilgi alanı)
+        const hasCommonInterests = p1.interests.some(
+            interest => p2.interests.includes(interest)
+        );
+
+        return isAgeCompatible && isLanguageCompatible && hasCommonInterests;
+    }
 
     // Bellek kullanımını izle ve ana sürece bildir
     setInterval(() => {
@@ -168,4 +307,5 @@ process.on('unhandledRejection', (reason, promise) => {
         global.gc();
     }
     process.exit(1);
+}); 
 }); 
