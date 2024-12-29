@@ -1,298 +1,171 @@
-const express = require('express');
-const http = require('http');
-const socketIO = require('socket.io');
-const cors = require('cors');
-const Filter = require('bad-words');
-const path = require('path');
-const { Sequelize, DataTypes } = require('sequelize');
-require('dotenv').config();
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import { createClient } from 'redis';
+import helmet from 'helmet';
+import compression from 'compression';
+import rateLimit from 'express-rate-limit';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import cluster from 'cluster';
+import os from 'os';
 
-const app = express();
-const filter = new Filter();
+// Ortam değişkenlerini yükle
+dotenv.config();
 
-// SQLite bağlantısı
-const sequelize = new Sequelize({
-    dialect: 'sqlite',
-    storage: './database.sqlite',
-    logging: false
-});
+// Worker sayısını CPU çekirdek sayısının yarısı olarak ayarla
+const numCPUs = Math.max(1, Math.floor(os.cpus().length / 2));
 
-// Veritabanı modelleri
-const User = sequelize.define('User', {
-    socketId: {
-        type: DataTypes.STRING,
-        unique: true
-    },
-    ip: DataTypes.STRING,
-    isBanned: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: false
-    },
-    banReason: DataTypes.STRING,
-    lastActive: DataTypes.DATE,
-    language: DataTypes.STRING,
-    interests: {
-        type: DataTypes.STRING,
-        get() {
-            const value = this.getDataValue('interests');
-            return value ? JSON.parse(value) : [];
-        },
-        set(value) {
-            this.setDataValue('interests', JSON.stringify(value));
-        }
+if (cluster.isMaster) {
+    console.log(`Ana süreç ${process.pid} çalışıyor`);
+
+    // Worker'ları başlat
+    for (let i = 0; i < numCPUs; i++) {
+        cluster.fork();
     }
-});
 
-const Report = sequelize.define('Report', {
-    reportedUserId: DataTypes.INTEGER,
-    reportedByUserId: DataTypes.INTEGER,
-    reason: DataTypes.STRING,
-    details: DataTypes.TEXT
-});
-
-const Room = sequelize.define('Room', {
-    name: DataTypes.STRING,
-    topic: DataTypes.STRING,
-    isActive: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: true
-    }
-});
-
-// Veritabanını senkronize et
-sequelize.sync();
-
-app.use(cors({
-    origin: '*',
-    methods: ['GET', 'POST'],
-    credentials: true
-}));
-app.use(express.json());
-app.use(express.static('public'));
-
-const server = http.createServer(app);
-const io = socketIO(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
-});
-
-// Aktif kullanıcıları takip etmek için
-let waitingUsers = {
-    video: new Map(),
-    text: new Map()
-};
-
-let activeRooms = new Map();
-
-// Socket.IO bağlantı yönetimi
-io.on('connection', async (socket) => {
-    const clientIp = socket.handshake.headers['x-forwarded-for'] || socket.handshake.address;
+    // Worker bellek kullanımını izle
+    const workerMemory = new Map();
     
-    // Kullanıcı kontrolü
-    const bannedUser = await User.findOne({ 
-        where: { 
-            ip: clientIp,
-            isBanned: true
-        }
-    });
-
-    if (bannedUser) {
-        socket.emit('banned', { reason: bannedUser.banReason });
-        socket.disconnect();
-        return;
-    }
-
-    // Yeni kullanıcı oluştur
-    const user = await User.create({
-        socketId: socket.id,
-        ip: clientIp,
-        lastActive: new Date()
-    });
-
-    console.log('Yeni kullanıcı bağlandı:', socket.id);
-
-    // Kullanıcı tercihleri güncelleme
-    socket.on('updatePreferences', async ({ language, interests }) => {
-        await User.update(
-            { language, interests },
-            { where: { socketId: socket.id } }
-        );
-    });
-
-    // Eşleşme bulma
-    socket.on('findMatch', async ({ type, preferences }) => {
-        const user = await User.findOne({ where: { socketId: socket.id } });
-        waitingUsers[type].set(socket.id, {
-            socket,
-            preferences,
-            user
-        });
-
-        findMatch(type, socket, preferences);
-    });
-
-    // Oda oluşturma
-    socket.on('createRoom', async ({ name, topic }) => {
-        const room = await Room.create({
-            name,
-            topic
-        });
-        activeRooms.set(room.id.toString(), { users: new Set([socket.id]), room });
-        socket.emit('roomCreated', { roomId: room.id });
-    });
-
-    // Odaya katılma
-    socket.on('joinRoom', ({ roomId }) => {
-        const roomData = activeRooms.get(roomId);
-        if (roomData) {
-            roomData.users.add(socket.id);
-            socket.join(roomId);
-            io.to(roomId).emit('userJoined', { userId: socket.id });
-        }
-    });
-
-    // Mesaj filtreleme ve gönderme
-    socket.on('message', async ({ to, message }) => {
-        const filteredMessage = filter.clean(message);
-        
-        // Mesajı alıcıya gönder
-        io.to(to).emit('message', {
-            from: socket.id,
-            message: filteredMessage
-        });
-        
-        // Log mesajı
-        console.log(`Mesaj gönderildi: ${socket.id} -> ${to}: ${filteredMessage}`);
-    });
-
-    // Kullanıcı raporlama
-    socket.on('reportUser', async ({ userId, reason, details }) => {
-        const reportedUser = await User.findOne({ where: { socketId: userId } });
-        const reportingUser = await User.findOne({ where: { socketId: socket.id } });
-
-        if (reportedUser && reportingUser) {
-            await Report.create({
-                reportedUserId: reportedUser.id,
-                reportedByUserId: reportingUser.id,
-                reason,
-                details
-            });
-
-            // Otomatik ban kontrolü
-            const reportCount = await Report.count({
-                where: { reportedUserId: reportedUser.id }
-            });
-
-            if (reportCount >= 3) {
-                await User.update(
-                    {
-                        isBanned: true,
-                        banReason: 'Çok sayıda şikayet'
-                    },
-                    { where: { id: reportedUser.id } }
-                );
-                io.to(userId).emit('banned', { reason: 'Çok sayıda şikayet' });
-            }
-        }
-    });
-
-    // WebRTC sinyal iletimi
-    socket.on('signal', ({ to, signal }) => {
-        io.to(to).emit('signal', {
-            from: socket.id,
-            signal
-        });
-    });
-
-    // Ekran paylaşımı sinyali
-    socket.on('screenShare', ({ to, stream }) => {
-        io.to(to).emit('screenShare', {
-            from: socket.id,
-            stream
-        });
-    });
-
-    // Sohbetten ayrılma
-    socket.on('leaveChat', async () => {
-        removeFromWaitingUsers(socket.id);
-        socket.broadcast.emit('partnerLeft', { partnerId: socket.id });
-    });
-
-    // Bağlantı kopması
-    socket.on('disconnect', async () => {
-        removeFromWaitingUsers(socket.id);
-        socket.broadcast.emit('partnerLeft', { partnerId: socket.id });
-        
-        // Aktif odalardan çıkar
-        for (const [roomId, roomData] of activeRooms) {
-            if (roomData.users.has(socket.id)) {
-                roomData.users.delete(socket.id);
-                if (roomData.users.size === 0) {
-                    await Room.update(
-                        { isActive: false },
-                        { where: { id: roomId } }
-                    );
-                    activeRooms.delete(roomId);
-                }
-            }
-        }
-        
-        // Kullanıcı son aktif zamanını güncelle
-        await User.update(
-            { lastActive: new Date() },
-            { where: { socketId: socket.id } }
-        );
-        
-        console.log('Kullanıcı ayrıldı:', socket.id);
-    });
-});
-
-// Eşleşme bulma fonksiyonu
-function findMatch(type, socket, preferences) {
-    const waitingList = waitingUsers[type];
-    
-    for (const [id, data] of waitingList) {
-        if (id !== socket.id && isCompatible(preferences, data.preferences)) {
-            // Eşleşme bulundu
-            waitingList.delete(id);
-            waitingList.delete(socket.id);
+    cluster.on('message', (worker, message) => {
+        if (message.type === 'memory') {
+            workerMemory.set(worker.id, message.usage);
             
-            // Eşleşen kullanıcıları bilgilendir
-            io.to(id).emit('matchFound', { partnerId: socket.id });
-            socket.emit('matchFound', { partnerId: id });
-            return;
+            // Bellek kullanımı yüksek olan worker'ları yeniden başlat
+            if (message.usage > 1024 * 1024 * 1024) { // 1GB
+                console.log(`Worker ${worker.id} bellek kullanımı yüksek, yeniden başlatılıyor...`);
+                worker.kill();
+                cluster.fork();
+            }
         }
-    }
+    });
+
+    cluster.on('exit', (worker, code, signal) => {
+        console.log(`Worker ${worker.process.pid} çıktı`);
+        workerMemory.delete(worker.id);
+        cluster.fork();
+    });
+
+    // Ana süreç bellek kullanımını izle
+    setInterval(() => {
+        const usage = process.memoryUsage();
+        if (usage.heapUsed > 1.5 * 1024 * 1024 * 1024) { // 1.5GB
+            console.log('Ana süreç bellek kullanımı yüksek, garbage collection öneriliyor');
+            if (global.gc) {
+                global.gc();
+            }
+        }
+    }, 30000); // 30 saniye
+
+} else {
+    // Express uygulamasını oluştur
+    const app = express();
+    const server = http.createServer(app);
+
+    // Redis bağlantı havuzu
+    const redisPool = {
+        min: 2,
+        max: 10,
+        clients: new Set()
+    };
+
+    // Redis istemcilerini oluştur
+    const createRedisClient = () => {
+        const client = createClient({
+            host: process.env.REDIS_HOST || 'localhost',
+            port: process.env.REDIS_PORT || 6379,
+            password: process.env.REDIS_PASSWORD,
+            retry_strategy: (options) => {
+                if (options.total_retry_time > 1000 * 60 * 60) {
+                    return new Error('Retry time exhausted');
+                }
+                return Math.min(options.attempt * 100, 3000);
+            }
+        });
+        redisPool.clients.add(client);
+        return client;
+    };
+
+    const pubClient = createRedisClient();
+    const subClient = pubClient.duplicate();
+
+    // Socket.IO sunucusunu oluştur
+    const io = new Server(server, {
+        cors: {
+            origin: process.env.ALLOWED_ORIGINS?.split(',') || '*',
+            methods: ['GET', 'POST'],
+            credentials: true
+        },
+        pingTimeout: 60000,
+        pingInterval: 25000,
+        transports: ['websocket'], // Polling'i devre dışı bırak
+        maxHttpBufferSize: 1e6 // 1MB
+    });
+
+    // Bellek kullanımını izle ve ana sürece bildir
+    setInterval(() => {
+        const usage = process.memoryUsage().heapUsed;
+        process.send({ type: 'memory', usage });
+        
+        // Yüksek bellek kullanımında garbage collection öner
+        if (usage > 800 * 1024 * 1024) { // 800MB
+            if (global.gc) {
+                global.gc();
+            }
+        }
+    }, 10000); // 10 saniye
+
+    // Bağlantı havuzu temizliği
+    setInterval(() => {
+        for (const client of redisPool.clients) {
+            if (!client.connected) {
+                client.quit();
+                redisPool.clients.delete(client);
+            }
+        }
+    }, 60000); // 60 saniye
+
+    // Graceful shutdown
+    const shutdown = async () => {
+        console.log('Graceful shutdown başlatılıyor...');
+        
+        // Yeni bağlantıları reddet
+        server.close();
+        
+        // Socket.IO bağlantılarını kapat
+        io.close();
+        
+        // Redis bağlantılarını kapat
+        for (const client of redisPool.clients) {
+            await client.quit();
+        }
+        
+        // Garbage collection'ı öner
+        if (global.gc) {
+            global.gc();
+        }
+        
+        process.exit(0);
+    };
+
+    process.on('SIGTERM', shutdown);
+    process.on('SIGINT', shutdown);
 }
 
-// Kullanıcı tercihleri uyumluluğu kontrolü
-function isCompatible(prefs1, prefs2) {
-    if (!prefs1 || !prefs2) return true;
-    
-    // Dil kontrolü
-    if (prefs1.language && prefs2.language && prefs1.language !== prefs2.language) {
-        return false;
+// Hata yakalama
+process.on('uncaughtException', (err) => {
+    console.error('Yakalanmamış istisna:', err);
+    if (global.gc) {
+        global.gc();
     }
-    
-    // İlgi alanları kontrolü
-    if (prefs1.interests && prefs2.interests && prefs1.interests.length > 0 && prefs2.interests.length > 0) {
-        const commonInterests = prefs1.interests.filter(i => prefs2.interests.includes(i));
-        if (commonInterests.length === 0) return false;
-    }
-    
-    return true;
-}
+    process.exit(1);
+});
 
-// Bekleyen kullanıcılardan çıkarma
-function removeFromWaitingUsers(socketId) {
-    for (const type in waitingUsers) {
-        waitingUsers[type].delete(socketId);
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('İşlenmeyen reddetme:', reason);
+    if (global.gc) {
+        global.gc();
     }
-}
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Sunucu ${PORT} portunda çalışıyor - Glitch üzerinde!`);
+    process.exit(1);
 }); 

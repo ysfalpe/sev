@@ -21,22 +21,181 @@
             <p>Yeni insanlarla tanışmanın en eğlenceli yolu!</p>
             
             <div class="welcome-container">
-                <button onclick="startChat()" class="start-chat-btn">
+                <div class="language-selector">
+                    <select id="language-select" class="input" onchange="changeLanguage()">
+                        <option value="tr">Türkçe</option>
+                        <option value="en">English</option>
+                        <option value="de">Deutsch</option>
+                        <option value="fr">Français</option>
+                    </select>
+                </div>
+
+                <div class="preferences-section">
+                    <h3>Eşleşme Tercihleri</h3>
+                    <div class="preference-group">
+                        <label>Yaş Aralığı:</label>
+                        <div class="age-range">
+                            <input type="number" id="minAge" min="18" max="99" value="18" class="input">
+                            <span>-</span>
+                            <input type="number" id="maxAge" min="18" max="99" value="99" class="input">
+                        </div>
+                    </div>
+
+                    <div class="preference-group">
+                        <label>İlgi Alanları:</label>
+                        <div class="interests-container">
+                            <div class="interests-input-group">
+                                <input type="text" id="interest-input" class="input" placeholder="İlgi alanı ekle...">
+                                <button onclick="addInterest()" class="btn">Ekle</button>
+                            </div>
+                            <div id="interests-tags" class="interests-tags"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="verification-section">
+                    <div class="age-verification">
+                        <label>
+                            <input type="checkbox" id="ageVerification" required>
+                            18 yaşından büyük olduğumu onaylıyorum
+                        </label>
+                        <p class="verification-note">* Yaşınızı doğrulamak için kimlik doğrulama gerekebilir</p>
+                    </div>
+
+                    <div class="terms-verification">
+                        <label>
+                            <input type="checkbox" id="termsVerification" required>
+                            <a href="#" onclick="showTerms()">Kullanım Koşulları</a> ve 
+                            <a href="#" onclick="showPrivacyPolicy()">Gizlilik Politikası</a>'nı okudum ve kabul ediyorum
+                        </label>
+                    </div>
+                </div>
+
+                <button onclick="startChat()" class="start-chat-btn" id="startChatBtn" disabled>
                     <i class="fas fa-video"></i>
                     Sohbete Başla
                 </button>
+            </div>
+
+            <!-- Kullanım Koşulları Modal -->
+            <div id="terms-modal" class="modal">
+                <div class="modal-content">
+                    <h3>Kullanım Koşulları</h3>
+                    <div class="modal-body">
+                        <h4>1. Genel Kurallar</h4>
+                        <p>Bu platformu kullanırken aşağıdaki kurallara uymanız gerekmektedir:</p>
+                        <ul>
+                            <li>Diğer kullanıcılara saygılı davranın</li>
+                            <li>Uygunsuz içerik paylaşmayın</li>
+                            <li>Spam veya taciz edici davranışlarda bulunmayın</li>
+                        </ul>
+                        <!-- Diğer koşullar... -->
+                    </div>
+                    <div class="modal-footer">
+                        <button onclick="closeTermsModal()" class="btn">Kapat</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Gizlilik Politikası Modal -->
+            <div id="privacy-modal" class="modal">
+                <div class="modal-content">
+                    <h3>Gizlilik Politikası</h3>
+                    <div class="modal-body">
+                        <h4>1. Veri Toplama</h4>
+                        <p>Aşağıdaki verileri topluyoruz:</p>
+                        <ul>
+                            <li>Temel kullanıcı bilgileri</li>
+                            <li>Kullanım istatistikleri</li>
+                            <li>Cihaz bilgileri</li>
+                        </ul>
+                        <!-- Diğer gizlilik bilgileri... -->
+                    </div>
+                    <div class="modal-footer">
+                        <button onclick="closePrivacyModal()" class="btn">Kapat</button>
+                    </div>
+                </div>
             </div>
         </div>
 
         <div id="waiting-screen" class="screen">
             <div class="loading-container">
-                <div class="loading-spinner"></div>
-                <div class="loading-text">Birileri Aranıyor...</div>
-                <div class="loading-subtext">Size uygun birini bulmaya çalışıyoruz</div>
-                <button onclick="cancelSearch()" class="btn danger" style="margin-top: 2rem;">
-                    <i class="fas fa-times"></i>
-                    Aramayı İptal Et
-                </button>
+                <div class="connection-status">
+                    <div class="status-indicator"></div>
+                    <span id="connection-quality">Bağlantı Kalitesi Kontrol Ediliyor...</span>
+                </div>
+
+                <div class="waiting-info">
+                    <div class="loading-spinner"></div>
+                    <div class="loading-text">Birileri Aranıyor...</div>
+                    <div class="loading-subtext">Size uygun birini bulmaya çalışıyoruz</div>
+                    <div class="waiting-stats">
+                        <div class="stat-item">
+                            <i class="fas fa-clock"></i>
+                            <span>Bekleme Süresi: <span id="waiting-time">0:00</span></span>
+                        </div>
+                        <div class="stat-item">
+                            <i class="fas fa-users"></i>
+                            <span>Çevrimiçi Kullanıcı: <span id="online-users">0</span></span>
+                        </div>
+                        <div class="stat-item">
+                            <i class="fas fa-signal"></i>
+                            <span>Tahmini Bekleme: <span id="estimated-wait">~0:00</span></span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="connection-test">
+                    <h3>Bağlantı Testi</h3>
+                    <div class="test-items">
+                        <div class="test-item" id="camera-test">
+                            <i class="fas fa-video"></i>
+                            <span>Kamera</span>
+                            <div class="test-status"></div>
+                        </div>
+                        <div class="test-item" id="mic-test">
+                            <i class="fas fa-microphone"></i>
+                            <span>Mikrofon</span>
+                            <div class="test-status"></div>
+                        </div>
+                        <div class="test-item" id="network-test">
+                            <i class="fas fa-network-wired"></i>
+                            <span>İnternet</span>
+                            <div class="test-status"></div>
+                        </div>
+                    </div>
+                    <div class="test-details" id="test-details"></div>
+                </div>
+
+                <div class="waiting-entertainment">
+                    <h3>Beklerken</h3>
+                    <div class="entertainment-options">
+                        <button class="btn-icon" onclick="startQuickGame()">
+                            <i class="fas fa-gamepad"></i>
+                            <span>Hızlı Oyun</span>
+                        </button>
+                        <button class="btn-icon" onclick="showRandomFact()">
+                            <i class="fas fa-lightbulb"></i>
+                            <span>İlginç Bilgi</span>
+                        </button>
+                        <button class="btn-icon" onclick="showJoke()">
+                            <i class="fas fa-laugh"></i>
+                            <span>Rastgele Şaka</span>
+                        </button>
+                    </div>
+                    <div id="entertainment-content" class="entertainment-content"></div>
+                </div>
+
+                <div class="action-buttons">
+                    <button onclick="adjustPreferences()" class="btn secondary">
+                        <i class="fas fa-sliders-h"></i>
+                        Tercihleri Ayarla
+                    </button>
+                    <button onclick="cancelSearch()" class="btn danger">
+                        <i class="fas fa-times"></i>
+                        Aramayı İptal Et
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -45,17 +204,63 @@
                 <div class="partner-info">
                     <span class="status online"></span>
                     <span id="partner-status">Bağlandı</span>
+                    <div class="connection-quality">
+                        <i class="fas fa-signal"></i>
+                        <span id="connection-quality-text">Bağlantı Kalitesi: İyi</span>
+                    </div>
                 </div>
+
                 <div class="chat-controls">
-                    <button onclick="toggleVideo()" class="btn-icon" id="video-toggle" aria-label="Kamera">
-                        <i class="fas fa-video"></i>
-                    </button>
-                    <button onclick="toggleAudio()" class="btn-icon" id="audio-toggle" aria-label="Mikrofon">
-                        <i class="fas fa-microphone"></i>
-                    </button>
-                    <button onclick="toggleScreenShare()" class="btn-icon" id="screen-share" aria-label="Ekran Paylaşımı">
-                        <i class="fas fa-desktop"></i>
-                    </button>
+                    <div class="control-group">
+                        <button onclick="toggleVideo()" class="btn-icon" id="video-toggle" aria-label="Kamera" title="Kamera Aç/Kapat">
+                            <i class="fas fa-video"></i>
+                        </button>
+                        <select id="camera-select" class="device-select" aria-label="Kamera Seç">
+                            <option value="">Kamera Seç</option>
+                        </select>
+                        <div class="control-options">
+                            <button onclick="toggleBackgroundBlur()" class="btn-icon" title="Arka Plan Bulanıklığı">
+                                <i class="fas fa-portrait"></i>
+                            </button>
+                            <button onclick="applyFilter()" class="btn-icon" title="Filtre Uygula">
+                                <i class="fas fa-magic"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="control-group">
+                        <button onclick="toggleAudio()" class="btn-icon" id="audio-toggle" aria-label="Mikrofon" title="Mikrofon Aç/Kapat">
+                            <i class="fas fa-microphone"></i>
+                        </button>
+                        <select id="microphone-select" class="device-select" aria-label="Mikrofon Seç">
+                            <option value="">Mikrofon Seç</option>
+                        </select>
+                        <input type="range" id="volume-control" min="0" max="100" value="100" class="volume-slider" title="Ses Seviyesi">
+                    </div>
+                    
+                    <div class="control-group">
+                        <button onclick="toggleScreenShare()" class="btn-icon" id="screen-share" aria-label="Ekran Paylaşımı" title="Ekran Paylaşımı">
+                            <i class="fas fa-desktop"></i>
+                        </button>
+                        <button onclick="toggleScreenAudio()" class="btn-icon" id="screen-audio" aria-label="Ekran Sesi" title="Ekran Sesi">
+                            <i class="fas fa-volume-up"></i>
+                        </button>
+                    </div>
+
+                    <div class="control-group">
+                        <select id="quality-select" class="quality-select" aria-label="Görüntü Kalitesi">
+                            <option value="low">Düşük Kalite</option>
+                            <option value="medium" selected>Orta Kalite</option>
+                            <option value="high">Yüksek Kalite</option>
+                        </select>
+                        <button onclick="showStats()" class="btn-icon" title="Bağlantı İstatistikleri">
+                            <i class="fas fa-chart-line"></i>
+                        </button>
+                    </div>
+
+                    <div id="audio-meter" class="audio-meter" title="Ses Seviyesi">
+                        <div class="meter-fill"></div>
+                    </div>
                 </div>
             </div>
 
@@ -64,33 +269,67 @@
                     <video id="local-video" autoplay muted playsinline></video>
                     <div class="video-overlay">
                         <span class="video-status">Siz</span>
+                        <div class="video-controls">
+                            <button onclick="takeSnapshot()" class="btn-icon" title="Ekran Görüntüsü Al">
+                                <i class="fas fa-camera"></i>
+                            </button>
+                            <button onclick="startRecording()" class="btn-icon" title="Kayıt">
+                                <i class="fas fa-record-vinyl"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
                 <div class="video-wrapper">
                     <video id="remote-video" autoplay playsinline></video>
                     <div class="video-overlay">
                         <span class="video-status">Karşı Taraf</span>
+                        <div class="connection-info">
+                            <span id="remote-quality">HD</span>
+                            <span id="remote-bitrate">2.5 Mbps</span>
+                        </div>
                     </div>
                 </div>
             </div>
             
             <div id="text-chat">
-                <div id="messages"></div>
+                <div id="messages" class="messages-container"></div>
                 <div class="input-area">
-                    <button onclick="toggleEmojiPicker()" class="btn-icon" aria-label="Emoji">
-                        <i class="far fa-smile"></i>
-                    </button>
-                    <div id="emoji-picker" class="emoji-picker"></div>
+                    <div class="message-tools">
+                        <button onclick="toggleEmojiPicker()" class="btn-icon" aria-label="Emoji" title="Emoji">
+                            <i class="far fa-smile"></i>
+                        </button>
+                        <div id="emoji-picker" class="emoji-picker"></div>
+                        
+                        <button onclick="showGifPicker()" class="btn-icon" title="GIF">
+                            <i class="fas fa-images"></i>
+                        </button>
+                        
+                        <button onclick="formatText('bold')" class="btn-icon" title="Kalın">
+                            <i class="fas fa-bold"></i>
+                        </button>
+                        
+                        <button onclick="formatText('italic')" class="btn-icon" title="İtalik">
+                            <i class="fas fa-italic"></i>
+                        </button>
+                    </div>
                     
                     <div class="message-input-wrapper">
-                        <input type="text" id="message-input" class="input" placeholder="Mesajınızı yazın..."
-                               onkeypress="if(event.key === 'Enter') sendMessage()">
+                        <textarea id="message-input" 
+                                class="input" 
+                                placeholder="Mesajınızı yazın... (Shift + Enter = Yeni Satır)"
+                                maxlength="1000"
+                                onkeydown="handleMessageInput(event)"></textarea>
                         <div class="input-actions">
-                            <label for="file-input" class="btn-icon" aria-label="Dosya Ekle">
+                            <label for="file-input" class="btn-icon" title="Dosya Ekle">
                                 <i class="fas fa-paperclip"></i>
                             </label>
-                            <input type="file" id="file-input" accept="image/*" style="display: none">
-                            <button onclick="sendMessage()" class="btn-icon" aria-label="Gönder">
+                            <input type="file" 
+                                   id="file-input" 
+                                   accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx,.txt"
+                                   multiple
+                                   style="display: none">
+                            <span class="char-count">0/1000</span>
+                            <button onclick="sendMessage()" class="btn-icon" title="Gönder">
                                 <i class="fas fa-paper-plane"></i>
                             </button>
                         </div>
@@ -99,15 +338,79 @@
             </div>
 
             <div class="chat-footer">
-                <button onclick="nextPartner()" class="btn">
-                    <i class="fas fa-random"></i> Sonraki
-                </button>
-                <button onclick="reportUser()" class="btn warning">
-                    <i class="fas fa-flag"></i> Raporla
-                </button>
-                <button onclick="endChat()" class="btn danger">
-                    <i class="fas fa-times"></i> Bitir
-                </button>
+                <div class="footer-left">
+                    <button onclick="toggleTranslation()" class="btn" title="Çeviri">
+                        <i class="fas fa-language"></i>
+                        Çeviri
+                    </button>
+                    <button onclick="toggleAutoScroll()" class="btn" title="Otomatik Kaydırma">
+                        <i class="fas fa-scroll"></i>
+                        Oto-Kaydırma
+                    </button>
+                </div>
+
+                <div class="footer-center">
+                    <button onclick="nextPartner()" class="btn">
+                        <i class="fas fa-random"></i> Sonraki
+                    </button>
+                    <button onclick="reportUser()" class="btn warning">
+                        <i class="fas fa-flag"></i> Raporla
+                    </button>
+                    <button onclick="blockUser()" class="btn warning">
+                        <i class="fas fa-ban"></i> Engelle
+                    </button>
+                    <button onclick="endChat()" class="btn danger">
+                        <i class="fas fa-times"></i> Bitir
+                    </button>
+                </div>
+
+                <div class="footer-right">
+                    <button onclick="showKeyboardShortcuts()" class="btn" title="Klavye Kısayolları">
+                        <i class="fas fa-keyboard"></i>
+                    </button>
+                    <button onclick="toggleFullscreen()" class="btn" title="Tam Ekran">
+                        <i class="fas fa-expand"></i>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dosya Yükleme Göstergesi -->
+            <div id="upload-progress" class="upload-progress">
+                <div class="progress-info">
+                    <span class="filename">dosya.jpg</span>
+                    <span class="progress-text">45%</span>
+                </div>
+                <div class="progress-bar">
+                    <div class="progress-fill" style="width: 45%"></div>
+                </div>
+            </div>
+
+            <!-- Bağlantı İstatistikleri Modal -->
+            <div id="stats-modal" class="modal">
+                <div class="modal-content">
+                    <h3>Bağlantı İstatistikleri</h3>
+                    <div class="stats-container">
+                        <div class="stat-group">
+                            <h4>Video</h4>
+                            <p>Çözünürlük: <span id="video-resolution">720p</span></p>
+                            <p>FPS: <span id="video-fps">30</span></p>
+                            <p>Bitrate: <span id="video-bitrate">1.5 Mbps</span></p>
+                        </div>
+                        <div class="stat-group">
+                            <h4>Ses</h4>
+                            <p>Kalite: <span id="audio-quality">48kHz</span></p>
+                            <p>Bitrate: <span id="audio-bitrate">128 kbps</span></p>
+                        </div>
+                        <div class="stat-group">
+                            <h4>Ağ</h4>
+                            <p>Ping: <span id="network-ping">45ms</span></p>
+                            <p>Paket Kaybı: <span id="packet-loss">0.1%</span></p>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button onclick="closeStatsModal()" class="btn">Kapat</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -138,7 +441,7 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="https://unpkg.com/simple-peer@9.11.0/simplepeer.min.js"></script>
-    <script src="https://unpkg.com/emoji-picker-element@1.12.1/index.js"></script>
-    <script src="app.js"></script>
+    <script src="https://unpkg.com/emoji-picker-element@1.12.1/index.js" type="module"></script>
+    <script src="app.js" type="module"></script>
 </body>
 </html> 

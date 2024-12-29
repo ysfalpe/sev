@@ -1,350 +1,395 @@
-// Socket.io bağlantısı
-const socket = io();
+import { MediaManager } from '../src/modules/MediaManager.js';
+import { WebRTCManager } from '../src/modules/WebRTCManager.js';
+import { ChatManager } from '../src/modules/ChatManager.js';
+import { SecurityManager } from '../src/modules/SecurityManager.js';
+import { NotificationManager } from '../src/modules/NotificationManager.js';
 
-// WebRTC değişkenleri
-let peer = null;
-let localStream = null;
-let remoteStream = null;
-let isVideoEnabled = true;
-let isAudioEnabled = true;
-let isScreenSharing = false;
-
-// UI değişkenleri
-let currentTheme = 'light';
-let emojiPicker = null;
-let notificationTimeout = null;
-
-// Tema değiştirme
-function toggleTheme() {
-    const body = document.body;
-    const themeIcon = document.querySelector('.theme-toggle i');
-    
-    if (currentTheme === 'light') {
-        body.classList.remove('light-theme');
-        body.classList.add('dark-theme');
-        themeIcon.classList.remove('fa-moon');
-        themeIcon.classList.add('fa-sun');
-        currentTheme = 'dark';
-    } else {
-        body.classList.remove('dark-theme');
-        body.classList.add('light-theme');
-        themeIcon.classList.remove('fa-sun');
-        themeIcon.classList.add('fa-moon');
-        currentTheme = 'light';
-    }
-}
-
-// Sohbet başlatma
-async function startChat() {
-    showScreen('waiting-screen');
-    showNotification('Arama başlatılıyor...', 'info');
-    
-    try {
-        localStream = await navigator.mediaDevices.getUserMedia({ 
-            video: true, 
-            audio: true 
-        });
-        document.getElementById('local-video').srcObject = localStream;
+class App {
+    constructor() {
+        this.mediaManager = new MediaManager();
+        this.securityManager = new SecurityManager();
+        this.notificationManager = new NotificationManager();
+        this.webRTCManager = new WebRTCManager(this.mediaManager);
+        this.chatManager = new ChatManager();
         
-        // Arama başlatma animasyonu
-        const loadingContainer = document.querySelector('.loading-container');
-        loadingContainer.style.animation = 'pulse 2s infinite';
-        const loadingSpinner = document.querySelector('.loading-spinner');
-        loadingSpinner.style.animation = 'spin 1s linear infinite';
+        this.currentScreen = 'welcome';
+        this.isInitialized = false;
+        this.isSearching = false;
         
-        socket.emit('findMatch', { type: 'video' });
-    } catch (err) {
-        showNotification('Kamera veya mikrofon erişimi reddedildi', 'error');
-        showScreen('welcome-screen');
-        return;
+        this.setupEventListeners();
     }
-}
 
-// Video kontrolü
-function toggleVideo() {
-    const videoTrack = localStream.getVideoTracks()[0];
-    videoTrack.enabled = !videoTrack.enabled;
-    isVideoEnabled = videoTrack.enabled;
-    
-    const btn = document.getElementById('video-toggle');
-    btn.innerHTML = isVideoEnabled ? 
-        '<i class="fas fa-video"></i>' : 
-        '<i class="fas fa-video-slash"></i>';
-    
-    showNotification(isVideoEnabled ? 'Kamera açıldı' : 'Kamera kapatıldı');
-}
-
-// Ses kontrolü
-function toggleAudio() {
-    const audioTrack = localStream.getAudioTracks()[0];
-    audioTrack.enabled = !audioTrack.enabled;
-    isAudioEnabled = audioTrack.enabled;
-    
-    const btn = document.getElementById('audio-toggle');
-    btn.innerHTML = isAudioEnabled ? 
-        '<i class="fas fa-microphone"></i>' : 
-        '<i class="fas fa-microphone-slash"></i>';
-    
-    showNotification(isAudioEnabled ? 'Mikrofon açıldı' : 'Mikrofon kapatıldı');
-}
-
-// Ekran paylaşımı
-async function toggleScreenShare() {
-    if (!isScreenSharing) {
+    async initialize() {
         try {
-            const screenStream = await navigator.mediaDevices.getDisplayMedia({ 
-                video: true 
-            });
-            const videoTrack = screenStream.getVideoTracks()[0];
+            // Medya yöneticisini başlat
+            await this.mediaManager.initialize();
             
-            videoTrack.onended = () => {
-                stopScreenShare();
-            };
-
-            const sender = peer.getSenders().find(s => s.track.kind === 'video');
-            await sender.replaceTrack(videoTrack);
+            // Socket.io bağlantısını kur
+            this.setupSocketConnection();
             
-            isScreenSharing = true;
-            document.getElementById('screen-share').classList.add('active');
-            showNotification('Ekran paylaşımı başlatıldı');
-        } catch (err) {
-            showNotification('Ekran paylaşımı başlatılamadı', 'error');
+            this.isInitialized = true;
+            return true;
+        } catch (error) {
+            console.error('Uygulama başlatma hatası:', error);
+            this.notificationManager.showError('Uygulama başlatılamadı: ' + error.message);
+            return false;
         }
-    } else {
-        stopScreenShare();
+    }
+
+    setupEventListeners() {
+        // Başlat düğmesi
+        const startButton = document.getElementById('startChatBtn');
+        if (startButton) {
+            startButton.addEventListener('click', () => this.startChat());
+        }
+
+        // Tema değiştirme
+        const themeToggle = document.querySelector('.theme-toggle button');
+        if (themeToggle) {
+            themeToggle.addEventListener('click', () => this.toggleTheme());
+        }
+
+        // Medya kontrolleri
+        document.getElementById('video-toggle')?.addEventListener('click', () => this.toggleVideo());
+        document.getElementById('audio-toggle')?.addEventListener('click', () => this.toggleAudio());
+        document.getElementById('screen-share')?.addEventListener('click', () => this.toggleScreenShare());
+
+        // Cihaz seçimi
+        document.getElementById('camera-select')?.addEventListener('change', (e) => this.switchCamera(e.target.value));
+        document.getElementById('microphone-select')?.addEventListener('change', (e) => this.switchMicrophone(e.target.value));
+
+        // Kalite ayarı
+        document.getElementById('quality-select')?.addEventListener('change', (e) => this.setVideoQuality(e.target.value));
+
+        // Sohbet kontrolleri
+        document.getElementById('message-input')?.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.chatManager.sendMessage();
+            }
+        });
+
+        // Yaş doğrulama
+        const ageVerification = document.getElementById('ageVerification');
+        const termsVerification = document.getElementById('termsVerification');
+        if (ageVerification && termsVerification) {
+            ageVerification.addEventListener('change', () => this.updateStartButton());
+            termsVerification.addEventListener('change', () => this.updateStartButton());
+        }
+    }
+
+    updateStartButton() {
+        const startButton = document.getElementById('startChatBtn');
+        const ageVerified = document.getElementById('ageVerification').checked;
+        const termsAccepted = document.getElementById('termsVerification').checked;
+        
+        if (startButton) {
+            startButton.disabled = !(ageVerified && termsAccepted);
+        }
+    }
+
+    setupSocketConnection() {
+        this.socket = io('/', {
+            transports: ['websocket'],
+            upgrade: false
+        });
+
+        this.socket.on('connect', () => {
+            console.log('Socket.io bağlantısı kuruldu');
+            this.notificationManager.showSuccess('Sunucuya bağlanıldı');
+        });
+
+        this.socket.on('disconnect', () => {
+            console.log('Socket.io bağlantısı kesildi');
+            this.notificationManager.showError('Sunucu bağlantısı kesildi');
+        });
+
+        this.socket.on('match', async (data) => {
+            await this.handleMatch(data);
+        });
+
+        this.socket.on('offer', async (offer) => {
+            await this.webRTCManager.handleOffer(offer);
+        });
+
+        this.socket.on('answer', async (answer) => {
+            await this.webRTCManager.handleAnswer(answer);
+        });
+
+        this.socket.on('ice-candidate', async (candidate) => {
+            await this.webRTCManager.handleIceCandidate(candidate);
+        });
+    }
+
+    async startChat() {
+        if (!this.isInitialized) {
+            await this.initialize();
+        }
+
+        try {
+            // Medya izinlerini al
+            const stream = await this.mediaManager.getLocalStream();
+            
+            // Video elementine bağla
+            const localVideo = document.getElementById('local-video');
+            if (localVideo) {
+                localVideo.srcObject = stream;
+            }
+
+            // WebRTC bağlantısını başlat
+            await this.webRTCManager.initialize(stream, true);
+
+            // Eşleşme aramaya başla
+            this.startSearching();
+
+            // Ekranı değiştir
+            this.switchScreen('waiting');
+        } catch (error) {
+            console.error('Sohbet başlatma hatası:', error);
+            this.notificationManager.showError('Sohbet başlatılamadı: ' + error.message);
+        }
+    }
+
+    startSearching() {
+        if (this.isSearching) return;
+
+        this.isSearching = true;
+        this.socket.emit('search');
+
+        // Bekleme süresini başlat
+        this.startWaitingTimer();
+    }
+
+    startWaitingTimer() {
+        let seconds = 0;
+        const timerElement = document.getElementById('waiting-time');
+        
+        this.waitingTimer = setInterval(() => {
+            seconds++;
+            const minutes = Math.floor(seconds / 60);
+            const remainingSeconds = seconds % 60;
+            if (timerElement) {
+                timerElement.textContent = `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+            }
+        }, 1000);
+    }
+
+    async handleMatch(data) {
+        this.isSearching = false;
+        clearInterval(this.waitingTimer);
+
+        try {
+            // WebRTC bağlantısını kur
+            await this.webRTCManager.initialize(this.mediaManager.localStream, false);
+            
+            // Ekranı değiştir
+            this.switchScreen('chat');
+            
+            this.notificationManager.showSuccess('Eşleşme bulundu!');
+        } catch (error) {
+            console.error('Eşleşme hatası:', error);
+            this.notificationManager.showError('Eşleşme başarısız: ' + error.message);
+            this.endChat();
+        }
+    }
+
+    switchScreen(screenId) {
+        const screens = ['welcome', 'waiting', 'chat'];
+        screens.forEach(screen => {
+            const element = document.getElementById(`${screen}-screen`);
+            if (element) {
+                element.classList.toggle('active', screen === screenId);
+            }
+        });
+        this.currentScreen = screenId;
+    }
+
+    async toggleVideo() {
+        const enabled = this.mediaManager.toggleVideo();
+        const button = document.getElementById('video-toggle');
+        if (button) {
+            button.innerHTML = `<i class="fas fa-video${enabled ? '' : '-slash'}"></i>`;
+        }
+    }
+
+    async toggleAudio() {
+        const enabled = this.mediaManager.toggleAudio();
+        const button = document.getElementById('audio-toggle');
+        if (button) {
+            button.innerHTML = `<i class="fas fa-microphone${enabled ? '' : '-slash'}"></i>`;
+        }
+    }
+
+    async toggleScreenShare() {
+        try {
+            if (!this.mediaManager.isScreenSharing) {
+                const stream = await this.mediaManager.startScreenShare();
+                const videoTrack = stream.getVideoTracks()[0];
+                
+                // WebRTC üzerinden gönder
+                const sender = this.webRTCManager.peer?.getSenders()
+                    .find(s => s.track?.kind === 'video');
+                
+                if (sender) {
+                    await sender.replaceTrack(videoTrack);
+                }
+                
+                document.getElementById('screen-share')?.classList.add('active');
+            } else {
+                this.mediaManager.stopScreenShare();
+                
+                // Kamera görüntüsüne geri dön
+                const videoTrack = this.mediaManager.localStream.getVideoTracks()[0];
+                const sender = this.webRTCManager.peer?.getSenders()
+                    .find(s => s.track?.kind === 'video');
+                
+                if (sender) {
+                    await sender.replaceTrack(videoTrack);
+                }
+                
+                document.getElementById('screen-share')?.classList.remove('active');
+            }
+        } catch (error) {
+            console.error('Ekran paylaşımı hatası:', error);
+            this.notificationManager.showError('Ekran paylaşımı başarısız: ' + error.message);
+        }
+    }
+
+    async switchCamera(deviceId) {
+        try {
+            await this.mediaManager.switchCamera(deviceId);
+        } catch (error) {
+            console.error('Kamera değiştirme hatası:', error);
+            this.notificationManager.showError('Kamera değiştirilemedi: ' + error.message);
+        }
+    }
+
+    async switchMicrophone(deviceId) {
+        try {
+            await this.mediaManager.switchMicrophone(deviceId);
+        } catch (error) {
+            console.error('Mikrofon değiştirme hatası:', error);
+            this.notificationManager.showError('Mikrofon değiştirilemedi: ' + error.message);
+        }
+    }
+
+    setVideoQuality(quality) {
+        const constraints = {
+            low: { width: 640, height: 480, frameRate: 15 },
+            medium: { width: 1280, height: 720, frameRate: 30 },
+            high: { width: 1920, height: 1080, frameRate: 30 }
+        };
+
+        if (this.mediaManager.localStream) {
+            const videoTrack = this.mediaManager.localStream.getVideoTracks()[0];
+            if (videoTrack) {
+                videoTrack.applyConstraints({
+                    width: constraints[quality].width,
+                    height: constraints[quality].height,
+                    frameRate: constraints[quality].frameRate
+                }).catch(error => {
+                    console.error('Video kalitesi ayarlama hatası:', error);
+                    this.notificationManager.showError('Video kalitesi ayarlanamadı');
+                });
+            }
+        }
+    }
+
+    toggleTheme() {
+        const body = document.body;
+        const isDark = body.classList.contains('dark-theme');
+        
+        body.classList.remove(isDark ? 'dark-theme' : 'light-theme');
+        body.classList.add(isDark ? 'light-theme' : 'dark-theme');
+        
+        const button = document.querySelector('.theme-toggle i');
+        if (button) {
+            button.className = `fas fa-${isDark ? 'sun' : 'moon'}`;
+        }
+        
+        localStorage.setItem('theme', isDark ? 'light' : 'dark');
+    }
+
+    reportUser() {
+        const reportModal = document.getElementById('report-modal');
+        if (reportModal) {
+            reportModal.classList.add('show');
+        }
+    }
+
+    async submitReport() {
+        const reason = document.getElementById('report-reason').value;
+        const details = document.getElementById('report-details').value;
+
+        if (!reason) {
+            this.notificationManager.showError('Lütfen bir sebep seçin');
+            return;
+        }
+
+        try {
+            this.securityManager.reportUser(this.currentPeerId, reason, details);
+            this.notificationManager.showSuccess('Rapor gönderildi');
+            this.closeReportModal();
+        } catch (error) {
+            console.error('Rapor gönderme hatası:', error);
+            this.notificationManager.showError('Rapor gönderilemedi: ' + error.message);
+        }
+    }
+
+    closeReportModal() {
+        const reportModal = document.getElementById('report-modal');
+        if (reportModal) {
+            reportModal.classList.remove('show');
+        }
+    }
+
+    endChat() {
+        // WebRTC bağlantısını kapat
+        this.webRTCManager.cleanup();
+        
+        // Medya akışlarını durdur
+        this.mediaManager.cleanup();
+        
+        // Socket bağlantısını temizle
+        if (this.socket) {
+            this.socket.emit('end-chat');
+        }
+        
+        // Ekranı sıfırla
+        this.switchScreen('welcome');
+        
+        // Zamanlayıcıyı temizle
+        if (this.waitingTimer) {
+            clearInterval(this.waitingTimer);
+        }
+        
+        this.isSearching = false;
+    }
+
+    cleanup() {
+        this.endChat();
+        this.chatManager.cleanup();
+        this.notificationManager.cleanup();
+        this.securityManager.cleanup();
+        
+        if (this.socket) {
+            this.socket.disconnect();
+        }
     }
 }
 
-// Ekran paylaşımını durdurma
-async function stopScreenShare() {
-    if (isScreenSharing) {
-        const videoTrack = localStream.getVideoTracks()[0];
-        const sender = peer.getSenders().find(s => s.track.kind === 'video');
-        await sender.replaceTrack(videoTrack);
-        
-        isScreenSharing = false;
-        document.getElementById('screen-share').classList.remove('active');
-        showNotification('Ekran paylaşımı durduruldu');
-    }
-}
+// Uygulamayı başlat
+const app = new App();
+window.app = app; // Global erişim için
 
-// Mesaj gönderme
-function sendMessage() {
-    const input = document.getElementById('message-input');
-    const message = input.value.trim();
-    
-    if (message && peer) {
-        socket.emit('message', { 
-            message,
-            to: peer._id
-        });
-        addMessage(message, 'sent');
-        input.value = '';
-    }
-}
-
-// Mesaj ekleme
-function addMessage(message, type) {
-    const messages = document.getElementById('messages');
-    const messageDiv = document.createElement('div');
-    messageDiv.className = `message ${type} animate__animated animate__fadeIn`;
-    messageDiv.textContent = message;
-    messages.appendChild(messageDiv);
-    messages.scrollTop = messages.scrollHeight;
-}
-
-// Bildirim gösterme
-function showNotification(message, type = 'info') {
-    const notification = document.getElementById('notification');
-    notification.textContent = message;
-    notification.className = `notification ${type} animate__animated animate__fadeInDown`;
-    
-    if (notificationTimeout) {
-        clearTimeout(notificationTimeout);
-    }
-    
-    notificationTimeout = setTimeout(() => {
-        notification.classList.remove('animate__fadeInDown');
-        notification.classList.add('animate__fadeOutUp');
-        
-        setTimeout(() => {
-            notification.className = 'notification';
-            notification.textContent = '';
-        }, 500);
-    }, 3000);
-}
-
-// Ekran değiştirme
-function showScreen(screenId) {
-    document.querySelectorAll('.screen').forEach(screen => {
-        screen.classList.remove('active');
-    });
-    
-    const targetScreen = document.getElementById(screenId);
-    targetScreen.classList.add('active');
-    
-    // Ekran geçiş animasyonları
-    if (screenId === 'waiting-screen') {
-        const loadingSpinner = document.querySelector('.loading-spinner');
-        loadingSpinner.style.animation = 'spin 1s linear infinite';
-        const loadingContainer = document.querySelector('.loading-container');
-        loadingContainer.style.animation = 'pulse 2s infinite';
-    }
-}
-
-// Socket.io event listeners
-socket.on('matchFound', ({ partnerId }) => {
-    showScreen('chat-screen');
-    showNotification('Eşleşme bulundu!', 'success');
-    
-    if (localStream) {
-        peer = new SimplePeer({
-            initiator: true,
-            stream: localStream
-        });
-        peer._id = partnerId;
-        
-        peer.on('signal', signal => {
-            socket.emit('signal', { to: partnerId, signal });
-        });
-        
-        peer.on('stream', stream => {
-            const remoteVideo = document.getElementById('remote-video');
-            remoteVideo.srcObject = stream;
-            remoteVideo.classList.add('animate__animated', 'animate__fadeIn');
-            remoteStream = stream;
-        });
-        
-        peer.on('error', err => {
-            showNotification('Bağlantı hatası oluştu', 'error');
-            endChat();
-        });
-    }
-});
-
-socket.on('signal', ({ from, signal }) => {
-    if (!peer) {
-        peer = new SimplePeer({
-            stream: localStream
-        });
-        peer._id = from;
-        
-        peer.on('signal', signal => {
-            socket.emit('signal', { to: from, signal });
-        });
-        
-        peer.on('stream', stream => {
-            const remoteVideo = document.getElementById('remote-video');
-            remoteVideo.srcObject = stream;
-            remoteVideo.classList.add('animate__animated', 'animate__fadeIn');
-            remoteStream = stream;
-        });
-    }
-    
-    peer.signal(signal);
-});
-
-socket.on('message', ({ from, message }) => {
-    addMessage(message, 'received');
-});
-
-socket.on('partnerLeft', () => {
-    showNotification('Eşleşilen kişi ayrıldı', 'warning');
-    if (peer) {
-        peer.destroy();
-        peer = null;
-    }
-    showScreen('welcome-screen');
-});
-
-// Event listeners
-document.getElementById('message-input').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
-        sendMessage();
-    }
-});
-
-// Başlangıç ayarları
+// Sayfa yüklendiğinde
 document.addEventListener('DOMContentLoaded', () => {
-    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-        toggleTheme();
-    }
-});
-
-// Sohbeti sonlandırma
-function endChat() {
-    if (peer) {
-        peer.destroy();
-        peer = null;
-    }
+    // Kaydedilmiş temayı uygula
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.body.classList.add(`${savedTheme}-theme`);
     
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
-    }
-    
-    socket.emit('leaveChat');
-    showScreen('welcome-screen');
-    showNotification('Sohbet sonlandırıldı', 'info');
-}
-
-// Sonraki kişiyi bulma
-function nextPartner() {
-    if (peer) {
-        peer.destroy();
-        peer = null;
-    }
-    
-    showScreen('waiting-screen');
-    
-    // Arama başlatma animasyonu
-    const loadingSpinner = document.querySelector('.loading-spinner');
-    loadingSpinner.style.animation = 'spin 1s linear infinite';
-    const loadingContainer = document.querySelector('.loading-container');
-    loadingContainer.style.animation = 'pulse 2s infinite';
-    
-    socket.emit('findMatch', { type: 'video' });
-    showNotification('Yeni eşleşme aranıyor...', 'info');
-}
-
-// Arama iptali
-function cancelSearch() {
-    if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
-    }
-    socket.emit('leaveChat');
-    showScreen('welcome-screen');
-    showNotification('Arama iptal edildi', 'info');
-}
-
-// Raporlama modalı
-function reportUser() {
-    document.getElementById('report-modal').classList.add('active');
-}
-
-function closeReportModal() {
-    document.getElementById('report-modal').classList.remove('active');
-}
-
-function submitReport() {
-    const reason = document.getElementById('report-reason').value;
-    const details = document.getElementById('report-details').value;
-    
-    if (!reason) {
-        showNotification('Lütfen bir sebep seçin', 'error');
-        return;
-    }
-    
-    if (peer) {
-        socket.emit('reportUser', {
-            userId: peer._id,
-            reason,
-            details
-        });
-        
-        closeReportModal();
-        showNotification('Kullanıcı rapor edildi', 'success');
-        nextPartner();
-    }
-} 
+    // Uygulamayı başlat
+    app.initialize().catch(error => {
+        console.error('Uygulama başlatma hatası:', error);
+    });
+}); 
